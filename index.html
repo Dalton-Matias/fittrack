@@ -1225,6 +1225,20 @@ function previewPhoto(input) {
   reader.readAsDataURL(file);
 }
 
+function compressImage(dataUrl, maxWidth, quality, callback) {
+  const img = new Image();
+  img.onload = function() {
+    const canvas = document.createElement('canvas');
+    let w = img.width, h = img.height;
+    if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    callback(canvas.toDataURL('image/jpeg', quality));
+  };
+  img.src = dataUrl;
+}
+
 function savePhoto() {
   const label=document.getElementById('mPhotoLabel')?.value.trim()||'Foto';
   const date=document.getElementById('mPhotoDate')?.value||new Date().toISOString().substring(0,7);
@@ -1233,8 +1247,11 @@ function savePhoto() {
   if(!file){showToast('❗ Selecione uma foto','red');return;}
   const reader=new FileReader();
   reader.onload=e=>{
-    state.photos.push({id:'p'+Date.now(),dataUrl:e.target.result,date,label,note});
-    save(); closeModal(); renderPhotos(); showToast('📸 Foto adicionada!');
+    // Compress: max 800px wide, 70% quality JPEG
+    compressImage(e.target.result, 800, 0.7, function(compressed) {
+      state.photos.push({id:'p'+Date.now(),dataUrl:compressed,date,label,note});
+      save(); closeModal(); renderPhotos(); showToast('📸 Foto adicionada!');
+    });
   };
   reader.readAsDataURL(file);
 }
