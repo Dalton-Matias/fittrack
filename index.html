@@ -16,6 +16,46 @@
 <link rel="manifest" href="manifest.json">
 
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDLPl8Hee8YXgWNhD_YeS6MNw8uEsBMS0Y",
+    authDomain: "fittrack-da7d9.firebaseapp.com",
+    projectId: "fittrack-da7d9",
+    storageBucket: "fittrack-da7d9.firebasestorage.app",
+    messagingSenderId: "569066547469",
+    appId: "1:569066547469:web:6887df9d2e20c24417e844"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+
+  // Expose to global scope for use in main script
+  window._db = db;
+  window._doc = doc;
+  window._setDoc = setDoc;
+  window._getDoc = getDoc;
+
+  // Sign in anonymously so each device has its own user ID
+  signInAnonymously(auth).then(() => {
+    console.log('Firebase auth OK');
+  }).catch(e => console.warn('Firebase auth error:', e));
+
+  onAuthStateChanged(auth, user => {
+    if (user) {
+      window._uid = user.uid;
+      // Load data from Firebase on first auth
+      window._firebaseReady = true;
+      if (window._onFirebaseReady) window._onFirebaseReady();
+    }
+  });
+</script>
 <style>
   :root {
     --bg: #0a0a0f;
@@ -299,6 +339,7 @@
     <div class="header-date">
       <div class="live-dot"></div>
       <span id="headerDate"></span>
+      <span id="syncStatus" style="font-size:11px;margin-left:8px;color:var(--text2)">☁️ conectando...</span>
     </div>
   </div>
 </div>
@@ -533,7 +574,54 @@ let state = {
 };
 
 // ============ PERSISTENCE ============
-function save() { try { localStorage.setItem('fittrack_v3', JSON.stringify(state)); } catch(e){} }
+// Save to localStorage (instant) + Firebase (cloud backup)
+function save() {
+  try {
+    // Remove photos from Firebase save (too large) — photos stay local only
+    const toSave = {
+      exercises: state.exercises,
+      logs: state.logs,
+      viewMonth: state.viewMonth,
+      viewYear: state.viewYear,
+      histMonth: state.histMonth,
+      histYear: state.histYear,
+    };
+    localStorage.setItem('fittrack_v3', JSON.stringify({...toSave, photos: state.photos}));
+    // Save to Firebase (without photos to stay under 1MB limit)
+    saveToFirebase(toSave);
+  } catch(e) { console.warn('Save error:', e); }
+}
+
+async function saveToFirebase(data) {
+  try {
+    if (!window._db || !window._uid) return;
+    await window._setDoc(window._doc(window._db, 'users', window._uid), data);
+  } catch(e) { console.warn('Firebase save error:', e); }
+}
+
+async function loadFromFirebase() {
+  try {
+    if (!window._db || !window._uid) return false;
+    const snap = await window._getDoc(window._doc(window._db, 'users', window._uid));
+    if (!snap.exists()) return false;
+    const p = snap.data();
+    if (p.logs && typeof p.logs === 'object') state.logs = p.logs;
+    if (p.exercises) {
+      if (Array.isArray(p.exercises.lower) && p.exercises.lower.length > 0) state.exercises.lower = p.exercises.lower;
+      if (Array.isArray(p.exercises.upper) && p.exercises.upper.length > 0) state.exercises.upper = p.exercises.upper;
+    }
+    if (typeof p.viewMonth === 'number') state.viewMonth = p.viewMonth;
+    if (typeof p.viewYear === 'number') state.viewYear = p.viewYear;
+    if (typeof p.histMonth === 'number') state.histMonth = p.histMonth;
+    if (typeof p.histYear === 'number') state.histYear = p.histYear;
+    // Re-render after Firebase load
+    renderDashboard();
+    showSyncStatus(true);
+    showToast('☁️ Dados sincronizados da nuvem!');
+    return true;
+  } catch(e) { console.warn('Firebase load error:', e); showSyncStatus(false); return false; }
+}
+
 function load() {
   try {
     const raw = localStorage.getItem('fittrack_v3') || localStorage.getItem('fittrack_v2');
@@ -549,7 +637,7 @@ function load() {
     if (typeof p.viewYear === 'number') state.viewYear = p.viewYear;
     if (typeof p.histMonth === 'number') state.histMonth = p.histMonth;
     if (typeof p.histYear === 'number') state.histYear = p.histYear;
-  } catch(e){ console.warn('FitTrack load error:', e); }
+  } catch(e) { console.warn('FitTrack load error:', e); }
 }
 
 // ============ DATE HELPERS ============
@@ -1392,7 +1480,6 @@ try {
   const old2 = localStorage.getItem('fittrack_v2');
   if (old2) {
     const parsed = JSON.parse(old2);
-    // Migrate if exercises are valid arrays
     if (parsed && parsed.exercises && Array.isArray(parsed.exercises.lower)) {
       if (!localStorage.getItem('fittrack_v3')) {
         localStorage.setItem('fittrack_v3', old2);
@@ -1404,9 +1491,27 @@ try {
   localStorage.removeItem('fittrack_v2');
 }
 
-load(); updateHeader();
+// Load from localStorage first (instant)
+load();
+updateHeader();
 renderDashboard();
 setInterval(updateHeader, 60000);
+
+// Then sync from Firebase when ready (may update UI with cloud data)
+window._onFirebaseReady = function() {
+  loadFromFirebase();
+};
+// If Firebase already ready before this runs
+if (window._firebaseReady) loadFromFirebase();
+
+// Show sync indicator in header
+function showSyncStatus(ok) {
+  const el = document.getElementById('syncStatus');
+  if (el) {
+    el.textContent = ok ? '☁️ Sincronizado' : '📴 Local';
+    el.style.color = ok ? 'var(--accent)' : 'var(--text2)';
+  }
+}
 </script>
 </body>
 </html>
