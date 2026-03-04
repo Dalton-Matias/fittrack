@@ -46,14 +46,19 @@
       window._firebaseReady = true;
       console.log('Firebase ready, uid:', window._uid);
       // Wait until main app script is loaded, then sync
-      function tryLoad() {
+      function tryLoad(attempt) {
+        attempt = attempt || 0;
+        console.log('tryLoad attempt', attempt, '| loadFromFirebase:', typeof loadFromFirebase);
         if (typeof loadFromFirebase === 'function') {
+          console.log('Calling loadFromFirebase...');
           loadFromFirebase();
+        } else if (attempt < 20) {
+          setTimeout(function(){ tryLoad(attempt+1); }, 300);
         } else {
-          setTimeout(tryLoad, 200);
+          console.warn('loadFromFirebase never became available');
         }
       }
-      tryLoad();
+      tryLoad(0);
     }
   });
 </script>
@@ -601,8 +606,9 @@ async function saveToFirebase(data) {
 }
 
 async function loadFromFirebase() {
+  console.log('loadFromFirebase called, db:', !!window._db, 'uid:', !!window._uid);
   try {
-    if (!window._db || !window._uid) return false;
+    if (!window._db || !window._uid) { console.warn('Missing db or uid'); return false; }
     const snap = await window._db.collection('users').doc(window._uid).get();
     if (!snap.exists) return false;
     const p = snap.data();
