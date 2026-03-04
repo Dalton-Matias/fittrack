@@ -17,12 +17,11 @@
 
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 
-<!-- Firebase SDK -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
-  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-auth.js";
-
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
   const firebaseConfig = {
     apiKey: "AIzaSyDLPl8Hee8YXgWNhD_YeS6MNw8uEsBMS0Y",
     authDomain: "fittrack-da7d9.firebaseapp.com",
@@ -32,26 +31,20 @@
     appId: "1:569066547469:web:6887df9d2e20c24417e844"
   };
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  const auth = getAuth(app);
+  firebase.initializeApp(firebaseConfig);
+  const _fbdb = firebase.firestore();
+  const _fbauth = firebase.auth();
 
-  // Expose to global scope for use in main script
-  window._db = db;
-  window._doc = doc;
-  window._setDoc = setDoc;
-  window._getDoc = getDoc;
+  _fbauth.signInAnonymously()
+    .then(() => console.log('Firebase auth OK'))
+    .catch(e => console.warn('Firebase auth error:', e));
 
-  // Sign in anonymously so each device has its own user ID
-  signInAnonymously(auth).then(() => {
-    console.log('Firebase auth OK');
-  }).catch(e => console.warn('Firebase auth error:', e));
-
-  onAuthStateChanged(auth, user => {
+  _fbauth.onAuthStateChanged(user => {
     if (user) {
       window._uid = user.uid;
-      // Load data from Firebase on first auth
+      window._db = _fbdb;
       window._firebaseReady = true;
+      console.log('Firebase ready, uid:', window._uid);
       if (window._onFirebaseReady) window._onFirebaseReady();
     }
   });
@@ -595,15 +588,15 @@ function save() {
 async function saveToFirebase(data) {
   try {
     if (!window._db || !window._uid) return;
-    await window._setDoc(window._doc(window._db, 'users', window._uid), data);
+    await window._db.collection('users').doc(window._uid).set(data);
   } catch(e) { console.warn('Firebase save error:', e); }
 }
 
 async function loadFromFirebase() {
   try {
     if (!window._db || !window._uid) return false;
-    const snap = await window._getDoc(window._doc(window._db, 'users', window._uid));
-    if (!snap.exists()) return false;
+    const snap = await window._db.collection('users').doc(window._uid).get();
+    if (!snap.exists) return false;
     const p = snap.data();
     if (p.logs && typeof p.logs === 'object') state.logs = p.logs;
     if (p.exercises) {
