@@ -36,31 +36,23 @@
   const _fbauth = firebase.auth();
 
   _fbauth.signInAnonymously()
-    .then(() => console.log('Firebase auth OK'))
-    .catch(e => console.warn('Firebase auth error:', e));
-
-  _fbauth.onAuthStateChanged(user => {
-    if (user) {
+    .then(function(result) {
+      var user = result.user;
+      console.log('Firebase auth OK, uid:', user.uid);
       window._uid = user.uid;
       window._db = _fbdb;
       window._firebaseReady = true;
-      console.log('Firebase ready, uid:', window._uid);
       // Wait until main app script is loaded, then sync
       function tryLoad(attempt) {
-        attempt = attempt || 0;
-        console.log('tryLoad attempt', attempt, '| loadFromFirebase:', typeof loadFromFirebase);
         if (typeof loadFromFirebase === 'function') {
-          console.log('Calling loadFromFirebase...');
           loadFromFirebase();
-        } else if (attempt < 20) {
-          setTimeout(function(){ tryLoad(attempt+1); }, 300);
-        } else {
-          console.warn('loadFromFirebase never became available');
+        } else if (attempt < 30) {
+          setTimeout(function(){ tryLoad(attempt+1); }, 200);
         }
       }
       tryLoad(0);
-    }
-  });
+    })
+    .catch(function(e) { console.warn('Firebase auth error:', e); });
 </script>
 <style>
   :root {
