@@ -45,7 +45,15 @@
       window._db = _fbdb;
       window._firebaseReady = true;
       console.log('Firebase ready, uid:', window._uid);
-      if (window._onFirebaseReady) window._onFirebaseReady();
+      // Wait until main app script is loaded, then sync
+      function tryLoad() {
+        if (typeof loadFromFirebase === 'function') {
+          loadFromFirebase();
+        } else {
+          setTimeout(tryLoad, 200);
+        }
+      }
+      tryLoad();
     }
   });
 </script>
@@ -609,10 +617,16 @@ async function loadFromFirebase() {
     if (typeof p.histYear === 'number') state.histYear = p.histYear;
     // Re-render after Firebase load
     renderDashboard();
-    showSyncStatus(true);
+    const el = document.getElementById('syncStatus');
+    if (el) { el.textContent = '☁️ Sincronizado'; el.style.color = 'var(--accent)'; }
     showToast('☁️ Dados sincronizados da nuvem!');
     return true;
-  } catch(e) { console.warn('Firebase load error:', e); showSyncStatus(false); return false; }
+  } catch(e) {
+    console.warn('Firebase load error:', e);
+    const el = document.getElementById('syncStatus');
+    if (el) { el.textContent = '📴 Local'; el.style.color = 'var(--text2)'; }
+    return false;
+  }
 }
 
 function load() {
@@ -1490,20 +1504,10 @@ updateHeader();
 renderDashboard();
 setInterval(updateHeader, 60000);
 
-// Then sync from Firebase when ready (may update UI with cloud data)
-window._onFirebaseReady = function() {
+// Firebase calls loadFromFirebase() directly via onAuthStateChanged
+// Fallback: if Firebase was already ready before app init
+if (window._firebaseReady && typeof loadFromFirebase === 'function') {
   loadFromFirebase();
-};
-// If Firebase already ready before this runs
-if (window._firebaseReady) loadFromFirebase();
-
-// Show sync indicator in header
-function showSyncStatus(ok) {
-  const el = document.getElementById('syncStatus');
-  if (el) {
-    el.textContent = ok ? '☁️ Sincronizado' : '📴 Local';
-    el.style.color = ok ? 'var(--accent)' : 'var(--text2)';
-  }
 }
 </script>
 </body>
